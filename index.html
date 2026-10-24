@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Directa → Backtesto Live Tracker</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+:root{--bg:#f3f5f2;--ink:#1c2420;--mute:#5d6b63;--line:#cfd8d1;--card:#fff;--acc:#1f5f4a;--accink:#fff;--warn:#9a5b00;--warnbg:#fff3de;--err:#a32222;--errbg:#fde8e8}
+@media (prefers-color-scheme:dark){:root{--bg:#141a17;--ink:#e6ece8;--mute:#93a39a;--line:#2e3a34;--card:#1b231f;--acc:#5fc3a0;--accink:#0d1511;--warn:#f0b866;--warnbg:#2c2414;--err:#ff9b9b;--errbg:#331a1a}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 "Iowan Old Style","Palatino Linotype",Georgia,serif}
+main{max-width:980px;margin:0 auto;padding:40px 20px 80px}
+h1{font-size:2rem;margin:0 0 6px;letter-spacing:-.01em}
+p.lead{color:var(--mute);margin:0 0 28px;max-width:62ch}
+.drop{display:block;border:2px dashed var(--line);border-radius:6px;padding:36px 20px;text-align:center;background:var(--card);cursor:pointer}
+.drop.over,.drop:focus-within{border-color:var(--acc)}
+.drop input{position:absolute;opacity:0;width:1px;height:1px}
+.drop b{font-size:1.1rem}
+.opts{margin:16px 0;color:var(--mute);font-size:.92rem}
+.opts label{display:block;margin:4px 0}
+button{font:inherit;background:var(--acc);color:var(--accink);border:0;border-radius:4px;padding:9px 16px;cursor:pointer}
+button.alt{background:transparent;color:var(--acc);border:1px solid var(--acc)}
+button:disabled{opacity:.4;cursor:not-allowed}
+button:focus-visible,input:focus-visible{outline:3px solid var(--acc);outline-offset:2px}
+.msgs{margin:18px 0}
+.msg{padding:8px 12px;border-radius:4px;margin:6px 0;font-size:.92rem;background:var(--warnbg);color:var(--warn)}
+.msg.err{background:var(--errbg);color:var(--err)}
+.wrap{overflow-x:auto;border:1px solid var(--line);border-radius:6px;background:var(--card)}
+table{border-collapse:collapse;width:100%;font:14px/1.4 ui-monospace,Menlo,Consolas,monospace}
+th,td{padding:7px 10px;border-bottom:1px solid var(--line);text-align:left;white-space:nowrap}
+th{font-weight:600;background:var(--bg)}
+td.n{text-align:right}
+.tg{background:transparent;color:var(--acc);border:1px solid var(--line);padding:0 7px;line-height:1.5;font-family:inherit}
+.tg[aria-expanded=true]{background:var(--acc);color:var(--accink)}
+tr.det td{white-space:normal;background:var(--bg);color:var(--mute);font-family:"Iowan Old Style",Georgia,serif;font-size:.9rem}
+tr.det b{color:var(--ink);font-weight:600}
+td input{font:inherit;width:12.5em;background:transparent;color:var(--ink);border:1px solid var(--line);border-radius:3px;padding:3px 6px;text-transform:uppercase}
+td input.bad{border-color:var(--err);background:var(--errbg)}
+.bar{display:flex;gap:10px;flex-wrap:wrap;margin:16px 0;align-items:center}
+.bar span{color:var(--mute);font-size:.9rem}
+[hidden]{display:none!important}
+footer{margin-top:40px;color:var(--mute);font-size:.85rem;max-width:70ch}
+</style>
+</head>
+<body>
+<main>
+<h1>Directa → Backtesto Live Tracker</h1>
+<p class="lead">Carica l’export .xlsx dei movimenti di Directa e scarica il file con le colonne Date, ISIN, Quantity, Price, Fees, Type. L’elaborazione avviene nel tuo browser: nessun dato viene inviato.</p>
+
+<label class="drop" id="drop">
+  <input type="file" id="file" accept=".xlsx,.xls">
+  <b>Scegli il file Directa</b><br><span style="color:var(--mute)">oppure trascinalo qui</span>
+</label>
+<div class="opts">
+  <label><input type="checkbox" id="optComm" checked> Aggiungi alle commissioni anche le righe “Commissioni” di Directa (abbinate per protocollo, o per ISIN e data)</label>
+</div>
+
+<div class="msgs" id="msgs" aria-live="polite"></div>
+
+<section id="result" hidden>
+  <div class="bar">
+    <button id="dlX">Scarica .xlsx</button>
+    <button id="dlC" class="alt">Scarica .csv</button>
+    <span id="count"></span>
+  </div>
+  <div class="wrap"><table id="tbl"></table></div>
+</section>
+
+<footer>
+Il prezzo unitario è calcolato come importo in euro ÷ quantità, se l’export non ha una colonna prezzo. Quantità e prezzo sono arrotondati a 3 decimali come richiesto da Backtesto. Se un ISIN manca, la riga è evidenziata: inseriscilo a mano nella tabella (non viene mai inventato). Controlla sempre l’anteprima prima di caricare il file.
+<p style="margin:14px 0 0"><b>Esclusione di responsabilità.</b> Questo strumento è fornito “così com’è”, senza alcuna garanzia sulla correttezza, completezza o aggiornamento dei dati elaborati. Il codice è stato scritto da un’intelligenza artificiale e non è stato sottoposto a revisione umana. Chi lo usa è l’unico responsabile di verificare il file generato rispetto ai movimenti originali prima di importarlo in Backtesto Live Tracker. L’autore non risponde di errori, omissioni o danni, anche economici, derivanti dall’uso dello strumento. Non è consulenza finanziaria né fiscale e non è affiliato a Directa o a Backtesto.</p>
+</footer>
+</main>
+
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+let rows = [];            // {date,isin,qty,price,fees,type,desc}
+const ISIN_RE = /^[A-Z]{2}[A-Z0-9]{9}[0-9]$/;
+
+const norm = s => String(s ?? "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/\s+/g," ").trim();
+
+function num(v){
+  if (typeof v === "number") return v;
+  if (v == null) return NaN;
+  let s = String(v).replace(/[\s€$£]/g,"");
+  if (!s) return NaN;
+  if (s.includes(",") && s.includes(".")) s = s.replace(/\./g,"").replace(",",".");
+  else if (s.includes(",")) s = s.replace(",",".");
+  return parseFloat(s);
+}
+const pad = n => String(n).padStart(2,"0");
+function parseDate(v){
+  if (typeof v === "number"){
+    const d = XLSX.SSF.parse_date_code(v);
+    return d ? `${d.y}-${pad(d.m)}-${pad(d.d)}` : null;
+  }
+  if (v instanceof Date) return `${v.getFullYear()}-${pad(v.getMonth()+1)}-${pad(v.getDate())}`;
+  const s = String(v ?? "").trim();
+  let m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (m) return `${m[1]}-${m[2]}-${m[3]}`;
+  m = s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})/);
+  if (m) return `${m[3]}-${pad(m[2])}-${pad(m[1])}`;
+  return null;
+}
+const r3 = x => Math.round(x*1000)/1000;
+
+function findHeader(data){
+  for (let i=0;i<Math.min(data.length,40);i++){
+    const cells = data[i].map(norm);
+    const hasType = cells.some(c => c.includes("tipo") || c.includes("operazione"));
+    const hasOther = cells.some(c => c.includes("isin")) || cells.some(c => c.startsWith("data"));
+    if (hasType && hasOther && cells.filter(Boolean).length >= 4) return i;
+  }
+  return -1;
+}
+function col(cells, ...tests){
+  for (const t of tests){
+    const i = cells.findIndex(c => t(c));
+    if (i >= 0) return i;
+  }
+  return -1;
+}
+
+function classify(type, desc){
+  const t = norm(type), d = norm(desc);
+  const tx = t || d;
+  if (tx.includes("tobin")) return "tobin";
+  if (tx.startsWith("acquisto") || tx.includes("acquisto")) return "Buy";
+  if (tx.startsWith("vendita") || tx.includes("vendita")) return "Sell";
+  if (tx.includes("commission")) return "comm";
+  if (!t){
+    if (d.includes("tobin")) return "tobin";
+    if (d.includes("acquisto")) return "Buy";
+    if (d.includes("vendita")) return "Sell";
+  }
+  return null;
+}
+function tobinCountry(desc, isin){
+  if (isin && /^[A-Z]{2}/.test(isin)) return isin.slice(0,2);
+  const d = norm(desc);
+  if (/\b(italia|italy|italiana|italiano)\b/.test(d)) return "IT";
+  if (/\b(francia|france|francese)\b/.test(d)) return "FR";
+  if (/\b(spagna|spain|spagnola|spagnolo)\b/.test(d)) return "ES";
+  if (/\b(it|fr|es)\b/.test(d)) return d.match(/\b(it|fr|es)\b/)[1].toUpperCase();
+  return null;
+}
+const dayNum = s => Date.parse(s+"T00:00:00Z")/86400000;
+
+function convert(data){
+  const msgs = [];
+  const h = findHeader(data);
+  if (h < 0) throw new Error("Intestazione non trovata: il file non sembra un export movimenti di Directa.");
+  const cells = data[h].map(norm);
+  const c = {
+    date: col(cells, x=>x==="data operazione", x=>x.startsWith("data operaz"), x=>x==="data", x=>x.startsWith("data")),
+    type: col(cells, x=>x==="tipo operazione", x=>x.includes("tipo"), x=>x.includes("operazione")),
+    isin: col(cells, x=>x==="isin", x=>x.includes("isin")),
+    qty:  col(cells, x=>x.startsWith("quantit")),
+    amt:  col(cells, x=>x==="importo euro", x=>x.includes("importo") && x.includes("eur"), x=>x==="importo"),
+    price:col(cells, x=>x==="prezzo", x=>x.startsWith("prezzo")),
+    tick: col(cells, x=>x==="ticker", x=>x.includes("ticker"), x=>x.includes("simbolo")),
+    desc: col(cells, x=>x.startsWith("descriz")),
+    prot: col(cells, x=>x.startsWith("protocollo"))
+  };
+  if (c.date<0 || c.type<0) throw new Error("Colonne “Data” o “Tipo operazione” non trovate.");
+  if (c.qty<0 || (c.amt<0 && c.price<0)) throw new Error("Colonne “Quantità” e “Importo euro” (o “Prezzo”) non trovate.");
+
+  const trades = [], tobins = [], comms = [];
+  for (let i=h+1;i<data.length;i++){
+    const r = data[i];
+    if (!r || r.every(v => v==null || v==="")) continue;
+    const desc = c.desc>=0 ? String(r[c.desc] ?? "") : "";
+    const kind = classify(r[c.type], desc);
+    if (!kind) continue;
+    const date = parseDate(r[c.date]);
+    const isin = c.isin>=0 ? String(r[c.isin] ?? "").trim().toUpperCase() : "";
+    const ticker = c.tick>=0 ? String(r[c.tick] ?? "").trim() : "";
+    const prot = c.prot>=0 ? String(r[c.prot] ?? "").trim() : "";
+    const amt = c.amt>=0 ? Math.abs(num(r[c.amt])) : NaN;
+    const line = i+1;
+    if (!date){ msgs.push({e:1,t:`Riga ${line}: data non valida, riga saltata.`}); continue; }
+    if (kind === "Buy" || kind === "Sell"){
+      const qty = Math.abs(num(r[c.qty]));
+      let price = c.price>=0 ? Math.abs(num(r[c.price])) : NaN;
+      if (!(price>0) && amt>0 && qty>0) price = amt/qty;
+      if (!(qty>0) || !(price>0)){ msgs.push({e:1,t:`Riga ${line}: quantità o prezzo non validi, riga saltata.`}); continue; }
+      trades.push({date, isin, qty:r3(qty), price:r3(price), fees:0, type:kind, prot, line, desc, ticker});
+    } else if (kind === "tobin"){
+      tobins.push({date, isin, amt, desc, line, country: tobinCountry(String(r[c.type] ?? "")+" "+desc, isin)});
+    } else {
+      comms.push({date, isin, amt, prot, line});
+    }
+  }
+
+  // Tobin tax -> fee dell'acquisto più vicino (stesso ISIN, o stesso paese)
+  for (const t of tobins){
+    if (!(t.amt>=0)){ msgs.push({e:1,t:`Riga ${t.line}: importo Tobin tax non valido.`}); continue; }
+    let cand = trades.filter(x => x.type==="Buy");
+    if (t.isin && ISIN_RE.test(t.isin)){
+      const same = cand.filter(x => x.isin===t.isin);
+      if (same.length) cand = same;
+      else if (t.country) cand = cand.filter(x => x.isin.startsWith(t.country));
+    } else if (t.country){
+      cand = cand.filter(x => x.isin.startsWith(t.country));
+    } else {
+      msgs.push({e:1,t:`Riga ${t.line}: Tobin tax senza paese riconoscibile, non assegnata (${t.amt.toFixed(2)} €).`}); continue;
+    }
+    if (!cand.length){ msgs.push({e:1,t:`Riga ${t.line}: nessun acquisto corrispondente per la Tobin tax del ${t.date} (${t.amt.toFixed(2)} €).`}); continue; }
+    const td = dayNum(t.date);
+    // più vicino per data; a parità, preferisce l'acquisto non successivo alla tassa
+    cand.sort((a,b) => {
+      const da = Math.abs(dayNum(a.date)-td), db = Math.abs(dayNum(b.date)-td);
+      if (da!==db) return da-db;
+      return (dayNum(a.date)>td) - (dayNum(b.date)>td);
+    });
+    cand[0].fees += t.amt;
+    if (!t.isin && cand.filter(x=>x.date===cand[0].date).length>1)
+      msgs.push({e:0,t:`Tobin tax del ${t.date}: più acquisti possibili, assegnata a ${cand[0].isin||"ISIN mancante"}. Verifica.`});
+  }
+
+  // Commissioni (opzionale)
+  if ($("optComm").checked){
+    for (const m of comms){
+      if (!(m.amt>=0)) continue;
+      let target = m.prot ? trades.find(x => x.prot && x.prot===m.prot) : null;
+      if (!target && m.isin) target = trades.find(x => x.isin===m.isin && x.date===m.date);
+      if (!target){
+        const sameDay = trades.filter(x => x.date===m.date);
+        if (sameDay.length===1) target = sameDay[0];
+      }
+      if (target) target.fees += m.amt;
+      else msgs.push({e:0,t:`Riga ${m.line}: commissione di ${m.amt.toFixed(2)} € non abbinata a nessuna operazione.`});
+    }
+  }
+
+  trades.forEach(t => t.fees = Math.round(t.fees*100)/100);
+  trades.sort((a,b) => a.date.localeCompare(b.date) || a.line-b.line);
+  return {trades, msgs};
+}
+
+function render(){
+  const tb = $("tbl");
+  tb.innerHTML = "<thead><tr><th><span class=\"sr\" style=\"position:absolute;left:-9999px\">Dettagli</span></th><th>Date</th><th>ISIN</th><th>Quantity</th><th>Price</th><th>Fees</th><th>Type</th></tr></thead>";
+  const body = document.createElement("tbody");
+  rows.forEach((r,i) => {
+    const tr = document.createElement("tr");
+    const td = (txt,cls) => { const e=document.createElement("td"); e.textContent=txt; if(cls) e.className=cls; return e; };
+    const det = document.createElement("tr"); det.className = "det"; det.hidden = true;
+    const dc = document.createElement("td"); dc.colSpan = 7;
+    const b1 = document.createElement("b"); b1.textContent = "Ticker: ";
+    const b2 = document.createElement("b"); b2.textContent = "Descrizione: ";
+    dc.append(b1, r.ticker || "—", "   ", b2, r.desc || "—");
+    det.append(dc);
+    const tc = document.createElement("td");
+    const tg = document.createElement("button");
+    tg.type = "button"; tg.className = "tg"; tg.textContent = "+";
+    tg.setAttribute("aria-expanded","false"); tg.setAttribute("aria-label",`Mostra ticker e descrizione riga ${i+1}`);
+    tg.addEventListener("click", () => {
+      const open = det.hidden; det.hidden = !open;
+      tg.setAttribute("aria-expanded", String(open)); tg.textContent = open ? "−" : "+";
+    });
+    tc.append(tg); tr.append(tc);
+    tr.append(td(r.date));
+    const ti = document.createElement("td");
+    const inp = document.createElement("input");
+    inp.value = r.isin; inp.maxLength = 12; inp.setAttribute("aria-label",`ISIN riga ${i+1}`);
+    inp.className = ISIN_RE.test(r.isin) ? "" : "bad";
+    inp.addEventListener("input", () => {
+      r.isin = inp.value.trim().toUpperCase();
+      inp.className = ISIN_RE.test(r.isin) ? "" : "bad";
+      status();
+    });
+    ti.append(inp); tr.append(ti);
+    tr.append(td(r.qty,"n"), td(r.price,"n"), td(r.fees,"n"), td(r.type));
+    body.append(tr, det);
+  });
+  tb.append(body);
+  status();
+}
+function status(){
+  const bad = rows.filter(r => !ISIN_RE.test(r.isin)).length;
+  $("count").textContent = bad ? `${rows.length} operazioni · ${bad} con ISIN mancante o non valido` : `${rows.length} operazioni pronte`;
+  $("dlX").disabled = $("dlC").disabled = bad>0 || !rows.length;
+}
+function out(){
+  return [["Date","ISIN","Quantity","Price","Fees","Type"],
+    ...rows.map(r => [r.date,r.isin,r.qty,r.price,r.fees,r.type])];
+}
+function fname(ext){
+  const d = new Date();
+  return `backtesto_import_${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}.${ext}`;
+}
+function save(blob,name){
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob); a.download = name; a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href),2000);
+}
+$("dlX").onclick = () => {
+  const ws = XLSX.utils.aoa_to_sheet(out());
+  ws["!cols"] = [{wch:12},{wch:14},{wch:10},{wch:10},{wch:8},{wch:6}];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Transactions");
+  XLSX.writeFile(wb, fname("xlsx"));
+};
+$("dlC").onclick = () => {
+  save(new Blob([out().map(r=>r.join(",")).join("\n")+"\n"],{type:"text/csv;charset=utf-8"}), fname("csv"));
+};
+
+async function handle(file){
+  const box = $("msgs"); box.innerHTML = ""; $("result").hidden = true;
+  const show = (t,e) => { const d=document.createElement("div"); d.className="msg"+(e?" err":""); d.textContent=t; box.append(d); };
+  try{
+    const wb = XLSX.read(await file.arrayBuffer(), {type:"array"});
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    const data = XLSX.utils.sheet_to_json(ws, {header:1, raw:true, defval:null});
+    const res = convert(data);
+    rows = res.trades;
+    res.msgs.forEach(m => show(m.t, m.e));
+    if (rows.some(r => !ISIN_RE.test(r.isin))) show("Alcune righe non hanno un ISIN valido: compilalo nella tabella prima di scaricare.", true);
+    if (!rows.length){ show("Nessun acquisto o vendita trovato nel file.", true); return; }
+    $("result").hidden = false; render();
+  }catch(err){ show(err.message || String(err), true); }
+}
+$("file").addEventListener("change", e => e.target.files[0] && handle(e.target.files[0]));
+const drop = $("drop");
+["dragenter","dragover"].forEach(ev => drop.addEventListener(ev, e => {e.preventDefault(); drop.classList.add("over");}));
+["dragleave","drop"].forEach(ev => drop.addEventListener(ev, e => {e.preventDefault(); drop.classList.remove("over");}));
+drop.addEventListener("drop", e => e.dataTransfer.files[0] && handle(e.dataTransfer.files[0]));
+$("optComm").addEventListener("change", () => $("file").files[0] && handle($("file").files[0]));
+</script>
+</body>
+</html>
